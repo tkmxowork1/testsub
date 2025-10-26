@@ -54,8 +54,8 @@ serve(async (req: Request) => {
     });
   }
 
-  async function copyMessage(toChatId: string, fromChatId: number, msgId: number) {
-    await fetch(`${TELEGRAM_API}/copyMessage`, {
+  async function forwardMessage(toChatId: string, fromChatId: number, msgId: number) {
+    await fetch(`${TELEGRAM_API}/forwardMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: toChatId, from_chat_id: fromChatId, message_id: msgId }),
@@ -443,7 +443,7 @@ serve(async (req: Request) => {
           }
           const channels = (await kv.get(["channels"])).value || [];
           for (const ch of channels) {
-            await copyMessage(ch, post.from_chat_id, post.message_id);
+            await forwardMessage(ch, post.from_chat_id, post.message_id);
           }
           await answerCallback(callbackQueryId, "✅ Post ähli kanallara iberildi");
           break;
