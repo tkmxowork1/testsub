@@ -3,6 +3,7 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 const kv = await Deno.openKv();
 
 const TOKEN = Deno.env.get("BOT_TOKEN");
+const botId = TOKEN.split(':')[0];
 const SECRET_PATH = "/testsub"; // change this if needed
 const TELEGRAM_API = `https://api.telegram.org/bot${TOKEN}`;
 
@@ -154,8 +155,22 @@ serve(async (req: Request) => {
             break;
           }
           chs.push(channel);
+          let isAdmin = false;
+          try {
+            const res = await fetch(`${TELEGRAM_API}/getChatMember?chat_id=${channel}&user_id=${botId}`);
+            const d = await res.json();
+            if (d.ok && d.result.status === "administrator") {
+              isAdmin = true;
+            }
+          } catch {}
           await kv.set(["channels"], chs);
           await sendMessage(chatId, "✅ Kanal üstünlikli goşuldy");
+          if (!isAdmin) {
+            const inlineKeyboard = [[
+              { text: "➕ Bot-y admin et", url: `https://t.me/${channel.substring(1)}` }
+            ]];
+            await sendMessage(chatId, "⚠️ Bot kanalda admin däl! Abuna barlanmagy işlemek üçin bot-y admin etmäli.", { reply_markup: { inline_keyboard: inlineKeyboard } });
+          }
           break;
         case "delete_channel":
           channel = text.trim();
@@ -361,8 +376,13 @@ serve(async (req: Request) => {
             orderText += `${ch} - ${i + 1}\n`;
           });
           prompt = orderText + "\n📥 Kanal ulanyjysyny we täze orny (mysal üçin @channel 3) iberiň";
+          const inlineKeyboard = chs.map((ch: string) => [
+            { text: "➕ Bot-y admin et - " + ch, url: `https://t.me/${ch.substring(1)}` }
+          ]);
           await kv.set(stateKey, "change_place");
-          break;
+          await editMessageText(chatId, messageId, prompt, { reply_markup: { inline_keyboard: inlineKeyboard } });
+          await answerCallback(callbackQueryId);
+          return new Response("OK", { status: 200 });
         case "add_button":
           prompt = "📥 Button adyny iberiň";
           await kv.set(stateKey, "add_button_name");
