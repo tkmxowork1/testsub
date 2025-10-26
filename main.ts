@@ -25,7 +25,7 @@ serve(async (req: Request) => {
   const username = (message?.from?.username || callbackQuery?.from?.username) ? `@${message?.from?.username || callbackQuery?.from?.username}` : null;
   const text = message?.text;
   const data = callbackQuery?.data;
-  const messageId = callbackQuery?.message?.message_id;
+  const messageId = callbackQuery?.message?.message_id || message?.message_id;
   const callbackQueryId = callbackQuery?.id;
 
   if (!chatId || !userId) return new Response("No chat ID", { status: 200 });
@@ -51,6 +51,14 @@ serve(async (req: Request) => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: cid, message_id: mid, text: txt, ...opts }),
+    });
+  }
+
+  async function forwardMessage(toChatId: string, fromChatId: number, msgId: number) {
+    await fetch(`${TELEGRAM_API}/forwardMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: toChatId, from_chat_id: fromChatId, message_id: msgId }),
     });
   }
 
@@ -176,7 +184,7 @@ serve(async (req: Request) => {
   }
 
   // Handle states for admin inputs
-  if (message && text) {
+  if (message) {
     const stateKey = ["state", userId];
     const state = (await kv.get(stateKey)).value;
     if (state) {
@@ -184,6 +192,10 @@ serve(async (req: Request) => {
       let chs: string[];
       switch (state) {
         case "add_channel":
+          if (!text) {
+            await sendMessage(chatId, "⚠️ Tekst iberiň");
+            break;
+          }
           channel = text.trim();
           if (!channel.startsWith("@")) channel = "@" + channel;
           if ((await getChannelTitle(channel)) === channel) {
@@ -200,6 +212,10 @@ serve(async (req: Request) => {
           await sendMessage(chatId, "✅ Kanal üstünlikli goşuldy");
           break;
         case "delete_channel":
+          if (!text) {
+            await sendMessage(chatId, "⚠️ Tekst iberiň");
+            break;
+          }
           channel = text.trim();
           if (!channel.startsWith("@")) channel = "@" + channel;
           chs = (await kv.get(["channels"])).value || [];
@@ -213,6 +229,10 @@ serve(async (req: Request) => {
           await sendMessage(chatId, "✅ Kanal üstünlikli aýryldy");
           break;
         case "change_place":
+          if (!text) {
+            await sendMessage(chatId, "⚠️ Tekst iberiň");
+            break;
+          }
           const parts = text.trim().split(/\s+/);
           if (parts.length !== 2) {
             await sendMessage(chatId, "⚠️ Nädogry format ýa-da kanal tapylmady");
@@ -238,44 +258,23 @@ serve(async (req: Request) => {
           await sendMessage(chatId, "✅ Orun üstünlikli üýtgedildi");
           break;
         case "change_text":
+          if (!text) {
+            await sendMessage(chatId, "⚠️ Tekst iberiň");
+            break;
+          }
           const newTxt = text.trim();
           await kv.set(["success_text"], newTxt);
           await sendMessage(chatId, "✅ Üstünlik teksti üýtgedildi");
           break;
-        case "change_post_text":
-          const newPost = text.trim();
-          await kv.set(["broadcast_text"], newPost);
-          await sendMessage(chatId, "✅ Post teksti üýtgedildi. Indi düwmeleri iberiň formatda [düwme ady] [link],[düwme ady] [link] ...");
-          await kv.set(stateKey, "change_post_buttons");
-          return new Response("OK", { status: 200 });
-        case "change_post_buttons":
-          const buttonsInput = text.trim();
-          let rows = [];
-          if (buttonsInput) {
-            const buttonList = [];
-            const buttonStrings = buttonsInput.split(',');
-            for (let bs of buttonStrings) {
-              bs = bs.trim();
-              if (bs.startsWith('[') && bs.includes(']')) {
-                const endName = bs.indexOf(']');
-                const name = bs.substring(1, endName);
-                const link = bs.substring(endName + 1).trim();
-                if (name && link) {
-                  buttonList.push({ text: name, url: link });
-                }
-              }
-            }
-            for (let i = 0; i < buttonList.length; i += 2) {
-              const row = [buttonList[i]];
-              if (i + 1 < buttonList.length) row.push(buttonList[i + 1]);
-              rows.push(row);
-            }
-          }
-          const postText = (await kv.get(["broadcast_text"])).value;
-          await kv.set(["broadcast_post"], { text: postText, reply_markup: { inline_keyboard: rows } });
-          await sendMessage(chatId, "✅ Post we düwmeler üstünlikli üýtgedildi");
+        case "change_post":
+          await kv.set(["broadcast_post"], { from_chat_id: chatId, message_id: message.message_id });
+          await sendMessage(chatId, "✅ Post üstünlikli üýtgedildi");
           break;
         case "global_message":
+          if (!text) {
+            await sendMessage(chatId, "⚠️ Tekst iberiň");
+            break;
+          }
           const globalMsg = text.trim();
           let sentCount = 0;
           for await (const e of kv.list({ prefix: ["users"] })) {
@@ -287,6 +286,10 @@ serve(async (req: Request) => {
           await sendMessage(chatId, `✅ Habar ${sentCount} ulanyjylara iberildi`);
           break;
         case "add_admin":
+          if (!text) {
+            await sendMessage(chatId, "⚠️ Tekst iberiň");
+            break;
+          }
           if (username !== "@Masakoff") {
             await sendMessage(chatId, "⚠️ Diňe @Masakoff adminleri goşup ýa-da aýyryp bilýär");
             break;
@@ -303,6 +306,10 @@ serve(async (req: Request) => {
           await sendMessage(chatId, "✅ Admin goşuldy");
           break;
         case "delete_admin":
+          if (!text) {
+            await sendMessage(chatId, "⚠️ Tekst iberiň");
+            break;
+          }
           if (username !== "@Masakoff") {
             await sendMessage(chatId, "⚠️ Diňe @Masakoff adminleri goşup ýa-da aýyryp bilýär");
             break;
@@ -323,7 +330,9 @@ serve(async (req: Request) => {
       await kv.delete(stateKey);
       return new Response("OK", { status: 200 });
     }
+  }
 
+  if (message && text) {
     // Handle /start
     if (text.startsWith("/start")) {
       const channels = (await kv.get(["channels"])).value || [];
@@ -423,8 +432,8 @@ serve(async (req: Request) => {
           await kv.set(stateKey, "global_message");
           break;
         case "change_post":
-          prompt = "📥 Täze ýaýratmak post tekstini iberiň";
-          await kv.set(stateKey, "change_post_text");
+          prompt = "📥 Täze ýaýratmak postyny iberiň (tekst, surat, wideo we ş.m.)";
+          await kv.set(stateKey, "change_post");
           break;
         case "send_post":
           const post = (await kv.get(["broadcast_post"])).value;
@@ -434,7 +443,7 @@ serve(async (req: Request) => {
           }
           const adminChs = (await kv.get(["admin_channels"])).value || [];
           for (const ch of adminChs) {
-            await sendMessage(ch, post.text, { reply_markup: post.reply_markup });
+            await forwardMessage(ch, post.from_chat_id, post.message_id);
           }
           await answerCallback(callbackQueryId, "✅ Post ähli admin kanallara iberildi");
           break;
