@@ -228,6 +228,43 @@ serve(async (req: Request) => {
           await kv.set(["channels"], chs);
           await sendMessage(chatId, "✅ Kanal üstünlikli aýryldy");
           break;
+        case "add_extra_channel":
+          if (!text) {
+            await sendMessage(chatId, "⚠️ Tekst iberiň");
+            break;
+          }
+          channel = text.trim();
+          if (!channel.startsWith("@")) channel = "@" + channel;
+          if ((await getChannelTitle(channel)) === channel) {
+            await sendMessage(chatId, "⚠️ Kanal tapylmady ýa-da nädogry");
+            break;
+          }
+          chs = (await kv.get(["extra_channels"])).value || [];
+          if (chs.includes(channel)) {
+            await sendMessage(chatId, "⚠️ Kanal eýýäm goşuldy");
+            break;
+          }
+          chs.push(channel);
+          await kv.set(["extra_channels"], chs);
+          await sendMessage(chatId, "✅ Extra kanal üstünlikli goşuldy");
+          break;
+        case "delete_extra_channel":
+          if (!text) {
+            await sendMessage(chatId, "⚠️ Tekst iberiň");
+            break;
+          }
+          channel = text.trim();
+          if (!channel.startsWith("@")) channel = "@" + channel;
+          chs = (await kv.get(["extra_channels"])).value || [];
+          idx = chs.indexOf(channel);
+          if (idx === -1) {
+            await sendMessage(chatId, "⚠️ Kanal tapylmady");
+            break;
+          }
+          chs.splice(idx, 1);
+          await kv.set(["extra_channels"], chs);
+          await sendMessage(chatId, "✅ Extra kanal üstünlikli aýryldy");
+          break;
         case "change_place":
           if (!text) {
             await sendMessage(chatId, "⚠️ Tekst iberiň");
@@ -368,6 +405,7 @@ serve(async (req: Request) => {
       await sendMessage(chatId, statText);
       const adminKb = [
         [{ text: "➕ Kanal goş", callback_data: "admin_add_channel" }, { text: "❌ Kanal aýyry", callback_data: "admin_delete_channel" }],
+        [{ text: "➕ Extra kanal goş", callback_data: "admin_add_extra_channel" }, { text: "❌ Extra kanal aýyry", callback_data: "admin_delete_extra_channel" }],
         [{ text: "🔄 Kanallaryň ýerini üýtget", callback_data: "admin_change_place" }],
         [{ text: "✏️ Üstünlik tekstini üýtget", callback_data: "admin_change_text" }],
         [{ text: "🌍 Global habar", callback_data: "admin_global_message" }],
@@ -414,6 +452,14 @@ serve(async (req: Request) => {
           prompt = "📥 Aýyrmak üçin ulanyjyny iberiň";
           await kv.set(stateKey, "delete_channel");
           break;
+        case "add_extra_channel":
+          prompt = "📥 Extra kanalyň ulanyjyny (mysal üçin @channel) iberiň";
+          await kv.set(stateKey, "add_extra_channel");
+          break;
+        case "delete_extra_channel":
+          prompt = "📥 Extra kanaly aýyrmak üçin ulanyjyny iberiň";
+          await kv.set(stateKey, "delete_extra_channel");
+          break;
         case "change_place":
           const chs = (await kv.get(["channels"])).value || [];
           let orderText = "📋 Häzirki kanallaryň tertibi:\n";
@@ -442,7 +488,9 @@ serve(async (req: Request) => {
             break;
           }
           const channels = (await kv.get(["channels"])).value || [];
-          for (const ch of channels) {
+          const extraChannels = (await kv.get(["extra_channels"])).value || [];
+          const allChannels = [...channels, ...extraChannels];
+          for (const ch of allChannels) {
             await forwardMessage(ch, post.from_chat_id, post.message_id);
           }
           await answerCallback(callbackQueryId, "✅ Post ähli kanallara iberildi");
