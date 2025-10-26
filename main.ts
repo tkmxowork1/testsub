@@ -3,7 +3,6 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 const kv = await Deno.openKv();
 
 const TOKEN = Deno.env.get("BOT_TOKEN");
-const botId = TOKEN.split(':')[0];
 const SECRET_PATH = "/testsub"; // change this if needed
 const TELEGRAM_API = `https://api.telegram.org/bot${TOKEN}`;
 
@@ -114,19 +113,6 @@ serve(async (req: Request) => {
     return rows;
   }
 
-  function buildButtonRows(btns: {text: string, url: string}[]) {
-    const rows = [];
-    for (let i = 0; i < btns.length; i += 2) {
-      const row = [];
-      row.push({ text: btns[i].text, url: btns[i].url });
-      if (i + 1 < btns.length) {
-        row.push({ text: btns[i + 1].text, url: btns[i + 1].url });
-      }
-      rows.push(row);
-    }
-    return rows;
-  }
-
   // Initialize admins if not set
   let admins = (await kv.get(["admins"])).value;
   if (!admins) {
@@ -155,22 +141,8 @@ serve(async (req: Request) => {
             break;
           }
           chs.push(channel);
-          let isAdmin = false;
-          try {
-            const res = await fetch(`${TELEGRAM_API}/getChatMember?chat_id=${channel}&user_id=${botId}`);
-            const d = await res.json();
-            if (d.ok && d.result.status === "administrator") {
-              isAdmin = true;
-            }
-          } catch {}
           await kv.set(["channels"], chs);
           await sendMessage(chatId, "✅ Kanal üstünlikli goşuldy");
-          if (!isAdmin) {
-            const inlineKeyboard = [[
-              { text: "➕ Bot-y admin et", url: `https://t.me/${channel.substring(1)}` }
-            ]];
-            await sendMessage(chatId, "⚠️ Bot kanalda admin däl! Abuna barlanmagy işlemek üçin bot-y admin etmäli.", { reply_markup: { inline_keyboard: inlineKeyboard } });
-          }
           break;
         case "delete_channel":
           channel = text.trim();
@@ -209,37 +181,6 @@ serve(async (req: Request) => {
           chs.splice(pos - 1, 0, item);
           await kv.set(["channels"], chs);
           await sendMessage(chatId, "✅ Orun üstünlikli üýtgedildi");
-          break;
-        case "add_button_name":
-          const name = text.trim();
-          await kv.set(["temp", userId], { button_name: name });
-          await kv.set(stateKey, "add_button_link");
-          await sendMessage(chatId, "📥 Button üçin link iberiň");
-          break;
-        case "add_button_link":
-          const url = text.trim();
-          const temp = (await kv.get(["temp", userId])).value;
-          if (!temp || !temp.button_name) {
-            await sendMessage(chatId, "⚠️ Nädogry");
-            break;
-          }
-          let buttons = (await kv.get(["buttons"])).value || [];
-          buttons.push({ text: temp.button_name, url });
-          await kv.set(["buttons"], buttons);
-          await sendMessage(chatId, "✅ Button goşuldy");
-          await kv.delete(["temp", userId]);
-          break;
-        case "delete_button":
-          const buttonName = text.trim();
-          let buttonsList = (await kv.get(["buttons"])).value || [];
-          idx = buttonsList.findIndex((b: {text: string, url: string}) => b.text === buttonName);
-          if (idx === -1) {
-            await sendMessage(chatId, "⚠️ Button tapylmady");
-            break;
-          }
-          buttonsList.splice(idx, 1);
-          await kv.set(["buttons"], buttonsList);
-          await sendMessage(chatId, "✅ Button aýryldy");
           break;
         case "change_text":
           const newTxt = text.trim();
@@ -292,18 +233,19 @@ serve(async (req: Request) => {
     // Handle /start
     if (text.startsWith("/start")) {
       const channels = (await kv.get(["channels"])).value || [];
-      const buttons = (await kv.get(["buttons"])).value || [];
-      const subscribed = await isSubscribed(userId, channels);
+      const adlist = (await kv.get(["adlist"])).value || [];
+      const allChs = [...channels, ...adlist];
+      const subscribed = await isSubscribed(userId, allChs);
       if (subscribed) {
         const successText = (await kv.get(["success_text"])).value || "🎉 Siziň ähli kanallara we adlist papkasyna abuna boldyňyz! VPN-iňizden lezzetli ulanyň.";
         await sendMessage(chatId, successText);
       } else {
         const chTitles = await Promise.all(channels.map(getChannelTitle));
-        const mainRows = buildJoinRows(channels, chTitles);
-        const buttonRows = buildButtonRows(buttons);
         let subText = "⚠️ Bu kanallara abuna boluň VPN almak üçin";
-        if (buttons.length > 0) subText += "\n\nAdlist kanallary:";
-        const keyboard = [...mainRows, ...buttonRows, [{ text: "Abuna barla ✅", callback_data: "check_sub" }]];
+        if (adlist.length > 0) subText += "\n\nAdlist papkasy:";
+        const mainRows = buildJoinRows(channels, chTitles);
+        const adRows = adlist.length > 0 ? [[{ text: "MugtVpns", url: "https://t.me/addlist/5wQ1fNW2xIdjZmIy" }]] : [];
+        const keyboard = [...mainRows, ...adRows, [{ text: "Abuna barla ✅", callback_data: "check_sub" }]];
         await sendMessage(chatId, subText, { reply_markup: { inline_keyboard: keyboard } });
       }
     }
@@ -324,8 +266,8 @@ serve(async (req: Request) => {
       await sendMessage(chatId, statText);
       const adminKb = [
         [{ text: "➕ Kanal goş", callback_data: "admin_add_channel" }, { text: "❌ Kanal aýyry", callback_data: "admin_delete_channel" }],
-        [{ text: "🔄 Kanallaryň ýerini üýtget", callback_data: "admin_change_place" }, { text: "➕ Button goş", callback_data: "admin_add_button" }],
-        [{ text: "❌ Button aýyr", callback_data: "admin_delete_button" }, { text: "✏️ Üýtgeşme tekstini üýtget", callback_data: "admin_change_text" }],
+        [{ text: "🔄 Kanallaryň ýerini üýtget", callback_data: "admin_change_place" }],
+        [{ text: "✏️ Üýtgeşme tekstini üýtget", callback_data: "admin_change_text" }],
         [{ text: "✏️ Ýaýratmak postyny üýtget", callback_data: "admin_change_post" }, { text: "📤 Post iber", callback_data: "admin_send_post" }],
         [{ text: "➕ Admin goş", callback_data: "admin_add_admin" }, { text: "❌ Admin aýyry", callback_data: "admin_delete_admin" }],
       ];
@@ -343,16 +285,19 @@ serve(async (req: Request) => {
 
     if (data === "check_sub") {
       const channels = (await kv.get(["channels"])).value || [];
-      const buttons = (await kv.get(["buttons"])).value || [];
-      const subscribed = await isSubscribed(userId, channels);
+      const adlist = (await kv.get(["adlist"])).value || [];
+      const allChs = [...channels, ...adlist];
+      const subscribed = await isSubscribed(userId, allChs);
       const successText = (await kv.get(["success_text"])).value || "🎉 Siziň ähli kanallara we adlist papkasyna abuna boldyňyz! VPN-iňizden lezzetli ulanyň.";
       const textToSend = subscribed ? successText : "⚠️ Siziň ähli kanallara henizem abuna bolmadyňyz. Haýsy kanallara goşulmaly bolýandygyňyzy bilýärsiňiz.";
       let keyboard;
       if (!subscribed) {
         const chTitles = await Promise.all(channels.map(getChannelTitle));
+        let subText = "⚠️ Bu kanallara abuna boluň VPN almak üçin";
+        if (adlist.length > 0) subText += "\n\nAdlist papkasy:";
         const mainRows = buildJoinRows(channels, chTitles);
-        const buttonRows = buildButtonRows(buttons);
-        keyboard = [...mainRows, ...buttonRows, [{ text: "Abuna barla ✅", callback_data: "check_sub" }]];
+        const adRows = adlist.length > 0 ? [[{ text: "MugtVpns", url: "https://t.me/addlist/5wQ1fNW2xIdjZmIy" }]] : [];
+        keyboard = [...mainRows, ...adRows, [{ text: "Abuna barla ✅", callback_data: "check_sub" }]];
       }
       await editMessageText(chatId, messageId, textToSend, { reply_markup: subscribed ? undefined : { inline_keyboard: keyboard } });
       await answerCallback(callbackQueryId);
@@ -376,25 +321,7 @@ serve(async (req: Request) => {
             orderText += `${ch} - ${i + 1}\n`;
           });
           prompt = orderText + "\n📥 Kanal ulanyjysyny we täze orny (mysal üçin @channel 3) iberiň";
-          const inlineKeyboard = chs.map((ch: string) => [
-            { text: "➕ Bot-y admin et - " + ch, url: `https://t.me/${ch.substring(1)}` }
-          ]);
           await kv.set(stateKey, "change_place");
-          await editMessageText(chatId, messageId, prompt, { reply_markup: { inline_keyboard: inlineKeyboard } });
-          await answerCallback(callbackQueryId);
-          return new Response("OK", { status: 200 });
-        case "add_button":
-          prompt = "📥 Button adyny iberiň";
-          await kv.set(stateKey, "add_button_name");
-          break;
-        case "delete_button":
-          const buttons = (await kv.get(["buttons"])).value || [];
-          let buttonText = "📋 Häzirki buttonlar:\n";
-          buttons.forEach((b: {text: string, url: string}) => {
-            buttonText += `${b.text}\n`;
-          });
-          prompt = buttonText + "\n📥 Aýyrmak üçin adyny iberiň";
-          await kv.set(stateKey, "delete_button");
           break;
         case "change_text":
           prompt = "📥 Täze üstünlik tekstini iberiň";
@@ -410,7 +337,7 @@ serve(async (req: Request) => {
             await answerCallback(callbackQueryId, "Post ýok");
             break;
           }
-          const allChs = (await kv.get(["channels"])).value || [];
+          const allChs = [...(await kv.get(["channels"])).value || [], ...(await kv.get(["adlist"])).value || []];
           for (const ch of allChs) {
             await sendMessage(ch, post);
           }
