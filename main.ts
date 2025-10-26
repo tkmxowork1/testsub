@@ -441,11 +441,11 @@ serve(async (req: Request) => {
             await answerCallback(callbackQueryId, "Post ýok");
             break;
           }
-          const adminChs = (await kv.get(["admin_channels"])).value || [];
-          for (const ch of adminChs) {
+          const channels = (await kv.get(["channels"])).value || [];
+          for (const ch of channels) {
             await forwardMessage(ch, post.from_chat_id, post.message_id);
           }
-          await answerCallback(callbackQueryId, "✅ Post ähli admin kanallara iberildi");
+          await answerCallback(callbackQueryId, "✅ Post ähli kanallara iberildi");
           break;
         case "add_admin":
           if (username !== "@Masakoff") {
