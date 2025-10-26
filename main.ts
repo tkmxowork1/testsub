@@ -72,20 +72,6 @@ serve(async (req: Request) => {
     }
   }
 
-  async function getFolderName(link: string) {
-    try {
-      const res = await fetch(link);
-      const html = await res.text();
-      const match = html.match(/from the (.*?) list on Telegram\./);
-      if (match) {
-        return match[1].replace(/&[^;]+;/g, (m) => m === "&#x27;" ? "'" : m); // simple entity replace
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  }
-
   async function isSubscribed(uid: number, chs: string[]) {
     for (const ch of chs) {
       try {
@@ -111,17 +97,19 @@ serve(async (req: Request) => {
       if (e.value.last_active > now - day) act24++;
     }
     const chnum = ((await kv.get(["channels"])).value || []).length;
-    const adnum = ((await kv.get(["adlist"])).value || []).length;
+    const adnum = ((await kv.get(["admins"])).value || []).length;
     return { total, reg24, act24, channels: chnum, admins: adnum };
   }
 
-  function buildUrlRows(items: { text: string; url: string }[]) {
+  function buildJoinRows(chs: string[], titles: string[]) {
     const rows = [];
-    for (let i = 0; i < items.length; i += 2) {
+    for (let i = 0; i < chs.length; i += 2) {
       const row = [];
-      if (i < items.length) row.push({ text: items[i].text, url: items[i].url });
-      if (i + 1 < items.length) row.push({ text: items[i + 1].text, url: items[i + 1].url });
-      if (row.length > 0) rows.push(row);
+      row.push({ text: titles[i], url: `https://t.me/${chs[i].substring(1)}` });
+      if (i + 1 < chs.length) {
+        row.push({ text: titles[i + 1], url: `https://t.me/${chs[i + 1].substring(1)}` });
+      }
+      rows.push(row);
     }
     return rows;
   }
@@ -140,7 +128,6 @@ serve(async (req: Request) => {
     if (state) {
       let channel: string, idx: number, pos: number;
       let chs: string[];
-      let adl: { link: string; name: string }[];
       switch (state) {
         case "add_channel":
           channel = text.trim();
@@ -197,40 +184,33 @@ serve(async (req: Request) => {
           await sendMessage(chatId, "✅ Orun üstünlikli üýtgedildi");
           break;
         case "add_adlist":
-          const link = text.trim();
-          if (!link.startsWith("https://t.me/addlist/")) {
-            await sendMessage(chatId, "⚠️ Nädogry papka linki");
+          channel = text.trim();
+          if (!channel.startsWith("@")) channel = "@" + channel;
+          if ((await getChannelTitle(channel)) === channel) {
+            await sendMessage(chatId, "⚠️ Kanal tapylmady ýa-da nädogry");
             break;
           }
-          const name = await getFolderName(link);
-          if (!name) {
-            await sendMessage(chatId, "⚠️ Papka adyny tapyp bolmady ýa-da nädogry link");
+          let adl = (await kv.get(["adlist"])).value || [];
+          if (adl.includes(channel)) {
+            await sendMessage(chatId, "⚠️ Kanal eýýäm goşuldy");
             break;
           }
-          adl = (await kv.get(["adlist"])).value || [];
-          if (adl.some((f) => f.link === link)) {
-            await sendMessage(chatId, "⚠️ Papka eýýäm goşuldy");
-            break;
-          }
-          adl.push({ link, name });
+          adl.push(channel);
           await kv.set(["adlist"], adl);
-          await sendMessage(chatId, "✅ Papka üstünlikli goşuldy");
+          await sendMessage(chatId, "✅ Adlist-e goşuldy");
           break;
         case "delete_adlist":
-          const dlink = text.trim();
-          if (!dlink.startsWith("https://t.me/addlist/")) {
-            await sendMessage(chatId, "⚠️ Nädogry papka linki");
-            break;
-          }
-          adl = (await kv.get(["adlist"])).value || [];
-          idx = adl.findIndex((f) => f.link === dlink);
+          channel = text.trim();
+          if (!channel.startsWith("@")) channel = "@" + channel;
+          let adl2 = (await kv.get(["adlist"])).value || [];
+          idx = adl2.indexOf(channel);
           if (idx === -1) {
-            await sendMessage(chatId, "⚠️ Papka tapylmady");
+            await sendMessage(chatId, "⚠️ Kanal tapylmady");
             break;
           }
-          adl.splice(idx, 1);
-          await kv.set(["adlist"], adl);
-          await sendMessage(chatId, "✅ Papka üstünlikli aýryldy");
+          adl2.splice(idx, 1);
+          await kv.set(["adlist"], adl2);
+          await sendMessage(chatId, "✅ Adlist-den aýryldy");
           break;
         case "change_text":
           const newTxt = text.trim();
@@ -283,19 +263,19 @@ serve(async (req: Request) => {
     // Handle /start
     if (text.startsWith("/start")) {
       const channels = (await kv.get(["channels"])).value || [];
-      const adlist = (await kv.get(["adlist"])).value || []; // {link, name}[]
-      const subscribed = await isSubscribed(userId, channels);
+      const adlist = (await kv.get(["adlist"])).value || [];
+      const allChs = [...channels, ...adlist];
+      const subscribed = await isSubscribed(userId, allChs);
       if (subscribed) {
-        const successText = (await kv.get(["success_text"])).value || "🎉 Siziň ähli kanallara we papkalara abuna boldyňyz! VPN-iňizden lezzetli ulanyň.";
+        const successText = (await kv.get(["success_text"])).value || "🎉 Siziň ähli kanallara we adlist papkasyna abuna boldyňyz! VPN-iňizden lezzetli ulanyň.";
         await sendMessage(chatId, successText);
       } else {
         const chTitles = await Promise.all(channels.map(getChannelTitle));
-        const mainItems = channels.map((ch, i) => ({ text: chTitles[i], url: `https://t.me/${ch.substring(1)}` }));
-        const mainRows = buildUrlRows(mainItems);
-        const adItems = adlist.map(f => ({ text: f.name, url: f.link }));
-        const adRows = buildUrlRows(adItems);
+        const adTitles = await Promise.all(adlist.map(getChannelTitle));
+        const mainRows = buildJoinRows(channels, chTitles);
+        const adRows = buildJoinRows(adlist, adTitles);
         let subText = "⚠️ Bu kanallara abuna boluň VPN almak üçin";
-        if (adlist.length > 0) subText += "\n\nPapkalar:";
+        if (adlist.length > 0) subText += "\n\nAdlist kanallary:";
         const keyboard = [...mainRows, ...adRows, [{ text: "Abuna barla ✅", callback_data: "check_sub" }]];
         await sendMessage(chatId, subText, { reply_markup: { inline_keyboard: keyboard } });
       }
@@ -317,10 +297,10 @@ serve(async (req: Request) => {
       await sendMessage(chatId, statText);
       const adminKb = [
         [{ text: "➕ Kanal goş", callback_data: "admin_add_channel" }, { text: "❌ Kanal aýyry", callback_data: "admin_delete_channel" }],
-        [{ text: "🔄 Kanallaryň ýerini üýtget", callback_data: "admin_change_place" }, { text: "➕ Papka goş", callback_data: "admin_add_adlist" }],
-        [{ text: "❌ Papka aýyr", callback_data: "admin_delete_adlist" }, { text: "✏️ Üýtgeşme tekstini üýtget", callback_data: "admin_change_text" }],
+        [{ text: "🔄 Kanallaryň ýerini üýtget", callback_data: "admin_change_place" }, { text: "➕ Kanaly adlist papkasyna goş", callback_data: "admin_add_adlist" }],
+        [{ text: "❌ Kanaly adlist papkasyndan aýyry", callback_data: "admin_delete_adlist" }, { text: "✏️ Üýtgeşme tekstini üýtget", callback_data: "admin_change_text" }],
         [{ text: "✏️ Ýaýratmak postyny üýtget", callback_data: "admin_change_post" }, { text: "📤 Post iber", callback_data: "admin_send_post" }],
-        [{ text: "➕ Admin goş", callback_data: "admin_add_admin" }, { text: "❌ Admin aýyr", callback_data: "admin_delete_admin" }],
+        [{ text: "➕ Admin goş", callback_data: "admin_add_admin" }, { text: "❌ Admin aýyry", callback_data: "admin_delete_admin" }],
       ];
       await sendMessage(chatId, "Admin paneli", { reply_markup: { inline_keyboard: adminKb } });
     }
@@ -337,16 +317,16 @@ serve(async (req: Request) => {
     if (data === "check_sub") {
       const channels = (await kv.get(["channels"])).value || [];
       const adlist = (await kv.get(["adlist"])).value || [];
-      const subscribed = await isSubscribed(userId, channels);
-      const successText = (await kv.get(["success_text"])).value || "🎉 Siziň ähli kanallara we papkalara abuna boldyňyz! VPN-iňizden lezzetli ulanyň.";
+      const allChs = [...channels, ...adlist];
+      const subscribed = await isSubscribed(userId, allChs);
+      const successText = (await kv.get(["success_text"])).value || "🎉 Siziň ähli kanallara we adlist papkasyna abuna boldyňyz! VPN-iňizden lezzetli ulanyň.";
       const textToSend = subscribed ? successText : "⚠️ Siziň ähli kanallara henizem abuna bolmadyňyz. Haýsy kanallara goşulmaly bolýandygyňyzy bilýärsiňiz.";
       let keyboard;
       if (!subscribed) {
         const chTitles = await Promise.all(channels.map(getChannelTitle));
-        const mainItems = channels.map((ch, i) => ({ text: chTitles[i], url: `https://t.me/${ch.substring(1)}` }));
-        const mainRows = buildUrlRows(mainItems);
-        const adItems = adlist.map(f => ({ text: f.name, url: f.link }));
-        const adRows = buildUrlRows(adItems);
+        const adTitles = await Promise.all(adlist.map(getChannelTitle));
+        const mainRows = buildJoinRows(channels, chTitles);
+        const adRows = buildJoinRows(adlist, adTitles);
         keyboard = [...mainRows, ...adRows, [{ text: "Abuna barla ✅", callback_data: "check_sub" }]];
       }
       await editMessageText(chatId, messageId, textToSend, { reply_markup: subscribed ? undefined : { inline_keyboard: keyboard } });
@@ -374,11 +354,11 @@ serve(async (req: Request) => {
           await kv.set(stateKey, "change_place");
           break;
         case "add_adlist":
-          prompt = "📥 Papkanyň linkini iberiň (mysal: https://t.me/addlist/ABC)";
+          prompt = "📥 Adlist üçin ulanyjyny iberiň";
           await kv.set(stateKey, "add_adlist");
           break;
         case "delete_adlist":
-          prompt = "📥 Papkany aýyrmak üçin linkini iberiň";
+          prompt = "📥 Adlist-den aýyrmak üçin ulanyjyny iberiň";
           await kv.set(stateKey, "delete_adlist");
           break;
         case "change_text":
@@ -395,7 +375,7 @@ serve(async (req: Request) => {
             await answerCallback(callbackQueryId, "Post ýok");
             break;
           }
-          const allChs = [...(await kv.get(["channels"])).value || []];
+          const allChs = [...(await kv.get(["channels"])).value || [], ...(await kv.get(["adlist"])).value || []];
           for (const ch of allChs) {
             await sendMessage(ch, post);
           }
