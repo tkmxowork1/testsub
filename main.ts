@@ -183,35 +183,6 @@ serve(async (req: Request) => {
           await kv.set(["channels"], chs);
           await sendMessage(chatId, "✅ Orun üstünlikli üýtgedildi");
           break;
-        case "add_adlist":
-          channel = text.trim();
-          if (!channel.startsWith("@")) channel = "@" + channel;
-          if ((await getChannelTitle(channel)) === channel) {
-            await sendMessage(chatId, "⚠️ Kanal tapylmady ýa-da nädogry");
-            break;
-          }
-          let adl = (await kv.get(["adlist"])).value || [];
-          if (adl.includes(channel)) {
-            await sendMessage(chatId, "⚠️ Kanal eýýäm goşuldy");
-            break;
-          }
-          adl.push(channel);
-          await kv.set(["adlist"], adl);
-          await sendMessage(chatId, "✅ Adlist-e goşuldy");
-          break;
-        case "delete_adlist":
-          channel = text.trim();
-          if (!channel.startsWith("@")) channel = "@" + channel;
-          let adl2 = (await kv.get(["adlist"])).value || [];
-          idx = adl2.indexOf(channel);
-          if (idx === -1) {
-            await sendMessage(chatId, "⚠️ Kanal tapylmady");
-            break;
-          }
-          adl2.splice(idx, 1);
-          await kv.set(["adlist"], adl2);
-          await sendMessage(chatId, "✅ Adlist-den aýryldy");
-          break;
         case "change_text":
           const newTxt = text.trim();
           await kv.set(["success_text"], newTxt);
@@ -255,6 +226,40 @@ serve(async (req: Request) => {
           await kv.set(["admins"], admins);
           await sendMessage(chatId, "✅ Admin aýryldy");
           break;
+        case "add_invite_name":
+          await kv.set(["temp", userId], { name: text.trim() });
+          await kv.set(stateKey, "add_invite_link");
+          await sendMessage(chatId, "📥 Çakylyk linkini iberiň");
+          break;
+        case "add_invite_link":
+          const temp = (await kv.get(["temp", userId])).value;
+          if (!temp) {
+            await sendMessage(chatId, "⚠️ Nädogry");
+            break;
+          }
+          const link = text.trim();
+          let invites = (await kv.get(["invite_links"])).value || [];
+          if (invites.some(i => i.name === temp.name)) {
+            await sendMessage(chatId, "⚠️ Şeýle ad eýýäm bar");
+            break;
+          }
+          invites.push({ name: temp.name, link });
+          await kv.set(["invite_links"], invites);
+          await sendMessage(chatId, "✅ Çakylyk link goşuldy");
+          await kv.delete(["temp", userId]);
+          break;
+        case "delete_invite":
+          const name = text.trim();
+          let invites = (await kv.get(["invite_links"])).value || [];
+          const index = invites.findIndex(i => i.name === name);
+          if (index === -1) {
+            await sendMessage(chatId, "⚠️ Tapylmady");
+            break;
+          }
+          invites.splice(index, 1);
+          await kv.set(["invite_links"], invites);
+          await sendMessage(chatId, "✅ Aýryldy");
+          break;
       }
       await kv.delete(stateKey);
       return new Response("OK", { status: 200 });
@@ -263,20 +268,26 @@ serve(async (req: Request) => {
     // Handle /start
     if (text.startsWith("/start")) {
       const channels = (await kv.get(["channels"])).value || [];
-      const adlist = (await kv.get(["adlist"])).value || [];
-      const allChs = [...channels, ...adlist];
-      const subscribed = await isSubscribed(userId, allChs);
+      const invite_links = (await kv.get(["invite_links"])).value || [];
+      const subscribed = await isSubscribed(userId, channels);
       if (subscribed) {
-        const successText = (await kv.get(["success_text"])).value || "🎉 Siziň ähli kanallara we adlist papkasyna abuna boldyňyz! VPN-iňizden lezzetli ulanyň.";
+        const successText = (await kv.get(["success_text"])).value || "🎉 Siziň ähli kanallara abuna boldyňyz! VPN-iňizden lezzetli ulanyň.";
         await sendMessage(chatId, successText);
       } else {
         const chTitles = await Promise.all(channels.map(getChannelTitle));
-        const adTitles = await Promise.all(adlist.map(getChannelTitle));
         const mainRows = buildJoinRows(channels, chTitles);
-        const adRows = buildJoinRows(adlist, adTitles);
+        const inviteRows = [];
+        for (let i = 0; i < invite_links.length; i += 2) {
+          const row = [];
+          row.push({ text: invite_links[i].name, url: invite_links[i].link });
+          if (i + 1 < invite_links.length) {
+            row.push({ text: invite_links[i + 1].name, url: invite_links[i + 1].link });
+          }
+          inviteRows.push(row);
+        }
         let subText = "⚠️ Bu kanallara abuna boluň VPN almak üçin";
-        if (adlist.length > 0) subText += "\n\nAdlist kanallary:";
-        const keyboard = [...mainRows, ...adRows, [{ text: "Abuna barla ✅", callback_data: "check_sub" }]];
+        if (invite_links.length > 0) subText += "\n\nGoşmaça çakylyk linkleri:";
+        const keyboard = [...mainRows, ...inviteRows, [{ text: "Abuna barla ✅", callback_data: "check_sub" }]];
         await sendMessage(chatId, subText, { reply_markup: { inline_keyboard: keyboard } });
       }
     }
@@ -297,9 +308,10 @@ serve(async (req: Request) => {
       await sendMessage(chatId, statText);
       const adminKb = [
         [{ text: "➕ Kanal goş", callback_data: "admin_add_channel" }, { text: "❌ Kanal aýyry", callback_data: "admin_delete_channel" }],
-        [{ text: "🔄 Kanallaryň ýerini üýtget", callback_data: "admin_change_place" }, { text: "➕ Kanaly adlist papkasyna goş", callback_data: "admin_add_adlist" }],
-        [{ text: "❌ Kanaly adlist papkasyndan aýyry", callback_data: "admin_delete_adlist" }, { text: "✏️ Üýtgeşme tekstini üýtget", callback_data: "admin_change_text" }],
+        [{ text: "🔄 Kanallaryň ýerini üýtget", callback_data: "admin_change_place" }],
+        [{ text: "✏️ Üýtgeşme tekstini üýtget", callback_data: "admin_change_text" }],
         [{ text: "✏️ Ýaýratmak postyny üýtget", callback_data: "admin_change_post" }, { text: "📤 Post iber", callback_data: "admin_send_post" }],
+        [{ text: "➕ Çakylyk link goş", callback_data: "admin_add_invite" }, { text: "❌ Çakylyk link aýyr", callback_data: "admin_delete_invite" }],
         [{ text: "➕ Admin goş", callback_data: "admin_add_admin" }, { text: "❌ Admin aýyry", callback_data: "admin_delete_admin" }],
       ];
       await sendMessage(chatId, "Admin paneli", { reply_markup: { inline_keyboard: adminKb } });
@@ -316,18 +328,24 @@ serve(async (req: Request) => {
 
     if (data === "check_sub") {
       const channels = (await kv.get(["channels"])).value || [];
-      const adlist = (await kv.get(["adlist"])).value || [];
-      const allChs = [...channels, ...adlist];
-      const subscribed = await isSubscribed(userId, allChs);
-      const successText = (await kv.get(["success_text"])).value || "🎉 Siziň ähli kanallara we adlist papkasyna abuna boldyňyz! VPN-iňizden lezzetli ulanyň.";
+      const invite_links = (await kv.get(["invite_links"])).value || [];
+      const subscribed = await isSubscribed(userId, channels);
+      const successText = (await kv.get(["success_text"])).value || "🎉 Siziň ähli kanallara abuna boldyňyz! VPN-iňizden lezzetli ulanyň.";
       const textToSend = subscribed ? successText : "⚠️ Siziň ähli kanallara henizem abuna bolmadyňyz. Haýsy kanallara goşulmaly bolýandygyňyzy bilýärsiňiz.";
       let keyboard;
       if (!subscribed) {
         const chTitles = await Promise.all(channels.map(getChannelTitle));
-        const adTitles = await Promise.all(adlist.map(getChannelTitle));
         const mainRows = buildJoinRows(channels, chTitles);
-        const adRows = buildJoinRows(adlist, adTitles);
-        keyboard = [...mainRows, ...adRows, [{ text: "Abuna barla ✅", callback_data: "check_sub" }]];
+        const inviteRows = [];
+        for (let i = 0; i < invite_links.length; i += 2) {
+          const row = [];
+          row.push({ text: invite_links[i].name, url: invite_links[i].link });
+          if (i + 1 < invite_links.length) {
+            row.push({ text: invite_links[i + 1].name, url: invite_links[i + 1].link });
+          }
+          inviteRows.push(row);
+        }
+        keyboard = [...mainRows, ...inviteRows, [{ text: "Abuna barla ✅", callback_data: "check_sub" }]];
       }
       await editMessageText(chatId, messageId, textToSend, { reply_markup: subscribed ? undefined : { inline_keyboard: keyboard } });
       await answerCallback(callbackQueryId);
@@ -353,14 +371,6 @@ serve(async (req: Request) => {
           prompt = orderText + "\n📥 Kanal ulanyjysyny we täze orny (mysal üçin @channel 3) iberiň";
           await kv.set(stateKey, "change_place");
           break;
-        case "add_adlist":
-          prompt = "📥 Adlist üçin ulanyjyny iberiň";
-          await kv.set(stateKey, "add_adlist");
-          break;
-        case "delete_adlist":
-          prompt = "📥 Adlist-den aýyrmak üçin ulanyjyny iberiň";
-          await kv.set(stateKey, "delete_adlist");
-          break;
         case "change_text":
           prompt = "📥 Täze üstünlik tekstini iberiň";
           await kv.set(stateKey, "change_text");
@@ -375,7 +385,7 @@ serve(async (req: Request) => {
             await answerCallback(callbackQueryId, "Post ýok");
             break;
           }
-          const allChs = [...(await kv.get(["channels"])).value || [], ...(await kv.get(["adlist"])).value || []];
+          const allChs = (await kv.get(["channels"])).value || [];
           for (const ch of allChs) {
             await sendMessage(ch, post);
           }
@@ -388,6 +398,14 @@ serve(async (req: Request) => {
         case "delete_admin":
           prompt = "📥 Admini aýyrmak üçin ulanyjyny iberiň";
           await kv.set(stateKey, "delete_admin");
+          break;
+        case "add_invite":
+          prompt = "📥 Inline düwme adyny iberiň";
+          await kv.set(stateKey, "add_invite_name");
+          break;
+        case "delete_invite":
+          prompt = "📥 Aýyrmak üçin inline düwme adyny iberiň";
+          await kv.set(stateKey, "delete_invite");
           break;
       }
       if (prompt) {
