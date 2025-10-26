@@ -289,12 +289,12 @@ serve(async (req: Request) => {
       const allChs = [...channels, ...adlist];
       const subscribed = await isSubscribed(userId, allChs);
       const successText = (await kv.get(["success_text"])).value || "🎉 Siziň ähli kanallara we adlist papkasyna abuna boldyňyz! VPN-iňizden lezzetli ulanyň.";
-      const textToSend = subscribed ? successText : "⚠️ Siziň ähli kanallara henizem abuna bolmadyňyz. Haýsy kanallara goşulmaly bolýandygyňyzy bilýärsiňiz.";
+      let textToSend = subscribed ? successText : "⚠️ Siziň ähli kanallara henizem abuna bolmadyňyz. Haýsy kanallara goşulmaly bolýandygyňyzy bilýärsiňiz.";
       let keyboard;
       if (!subscribed) {
         const chTitles = await Promise.all(channels.map(getChannelTitle));
-        let subText = "⚠️ Bu kanallara abuna boluň VPN almak üçin";
-        if (adlist.length > 0) subText += "\n\nAdlist papkasy:";
+        textToSend = "⚠️ Bu kanallara abuna boluň VPN almak üçin";
+        if (adlist.length > 0) textToSend += "\n\nAdlist papkasy:";
         const mainRows = buildJoinRows(channels, chTitles);
         const adRows = adlist.length > 0 ? [[{ text: "MugtVpns", url: "https://t.me/addlist/5wQ1fNW2xIdjZmIy" }]] : [];
         keyboard = [...mainRows, ...adRows, [{ text: "Abuna barla ✅", callback_data: "check_sub" }]];
