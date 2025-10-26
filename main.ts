@@ -74,17 +74,11 @@ serve(async (req: Request) => {
 
   async function getFolderName(link: string) {
     try {
-      const res = await fetch(link, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        }
-      });
+      const res = await fetch(link);
       const html = await res.text();
-      const match = html.match(/add \d+ chats? from the (.*?) list on Telegram/i);
+      const match = html.match(/from the (.*?) list on Telegram\./);
       if (match) {
-        let name = match[1];
-        name = name.replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-        return name;
+        return match[1].replace(/&[^;]+;/g, (m) => m === "&#x27;" ? "'" : m); // simple entity replace
       }
       return null;
     } catch {
