@@ -402,7 +402,7 @@ serve(async (req: Request) => {
           await sendMessage(chatId, "✅ Habar üýtgedildi");
           break;
         case "add_admin":
-          let newAdmin = text.trim();
+          let newAdmin = text.trim().replace(/^@/, '');
           admins = await kv.get(["admins"]);
           let adminList = admins.value || [];
           if (adminList.includes(newAdmin)) {
@@ -414,7 +414,7 @@ serve(async (req: Request) => {
           await sendMessage(chatId, "✅ Admin goşuldy");
           break;
         case "delete_admin":
-          let delAdmin = text.trim();
+          let delAdmin = text.trim().replace(/^@/, '');
           admins = await kv.get(["admins"]);
           let adminListDel = admins.value || [];
           if (!adminListDel.includes(delAdmin)) {
