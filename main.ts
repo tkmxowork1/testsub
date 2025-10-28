@@ -1,8 +1,12 @@
+//main.ts
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+
 const kv = await Deno.openKv();
 const TOKEN = Deno.env.get("BOT_TOKEN");
 const SECRET_PATH = "/testsub"; // change this if needed
 const TELEGRAM_API = `https://api.telegram.org/bot${TOKEN}`;
+
+
 serve(async (req: Request) => {
   const { pathname } = new URL(req.url);
   if (pathname !== SECRET_PATH) {
