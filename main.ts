@@ -210,18 +210,22 @@ serve(async (req: Request) => {
           const targetChannel = "@MugtVpns";
           const copyRes = await copyMessage(targetChannel, channelPost.chat.id, channelPost.message_id);
           if (copyRes.ok) {
+            let count = (await kv.get(["forward_count"])).value || 0;
+            count++;
+            await kv.set(["forward_count"], count);
             const newMessage = copyRes.result;
             const newMsgId = newMessage.message_id;
-            const appendText = "\n\n🤗 Хᴏᴛиᴛᴇ ᴛᴀᴋᴏй жᴇ ᴋᴧюч дᴇᴧиᴛᴇᴄь нᴀɯиʍ ᴋᴀнᴀᴧᴏʍ и нᴇ ɜᴀбыʙᴀйᴛᴇ ᴄᴛᴀʙиᴛь ᴧᴀйᴋи❤️‍🩹👍";
-            if (newMessage.text) {
-              const newText = (newMessage.text || "") + appendText;
-              await editMessageText(targetChannel, newMsgId, newText, { parse_mode: newMessage.parse_mode });
-            } else if (newMessage.caption) {
-              const newCaption = (newMessage.caption || "") + appendText;
-              await editMessageCaption(targetChannel, newMsgId, newCaption, { parse_mode: newMessage.parse_mode });
-            } else {
-              // No text or caption, send append as reply
-              await sendMessage(targetChannel, appendText, { reply_to_message_id: newMsgId });
+            if (count % 5 === 0) {
+              const appendText = "\n\n🤗 Хᴏᴛиᴛᴇ ᴛᴀᴋᴏй жᴇ ᴋᴧюч дᴇᴧиᴛᴇᴄь нᴀɯиʍ ᴋᴀнᴀᴧᴏʍ и нᴇ ɜᴀбыʙᴀйᴛᴇ ᴄᴛᴀʙиᴛь ᴧᴀйᴋи❤️‍🩹👍";
+              if (newMessage.text) {
+                const newText = (newMessage.text || "") + appendText;
+                await editMessageText(targetChannel, newMsgId, newText, { parse_mode: newMessage.parse_mode });
+              } else if (newMessage.caption) {
+                const newCaption = (newMessage.caption || "") + appendText;
+                await editMessageCaption(targetChannel, newMsgId, newCaption, { parse_mode: newMessage.parse_mode });
+              } else {
+                await sendMessage(targetChannel, appendText, { reply_to_message_id: newMsgId });
+              }
             }
           }
         }
