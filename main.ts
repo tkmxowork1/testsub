@@ -27,6 +27,7 @@ serve(async (req: Request) => {
   const data = callbackQuery?.data;
   const messageId = callbackQuery?.message?.message_id || message?.message_id;
   const callbackQueryId = callbackQuery?.id;
+  const channelPost = update.channel_post;
 
   if (!chatId || !userId) return new Response("No chat ID", { status: 200 });
 
@@ -154,6 +155,30 @@ serve(async (req: Request) => {
     return rows;
   }
 
+  async function sendDocument(cid: number | string, docId: string, cap: string = "", opts = {}) {
+    await fetch(`${TELEGRAM_API}/sendDocument`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: cid, document: docId, caption: cap, ...opts }),
+    });
+  }
+
+  async function sendPhoto(cid: number | string, photoId: string, cap: string = "", opts = {}) {
+    await fetch(`${TELEGRAM_API}/sendPhoto`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: cid, photo: photoId, caption: cap, ...opts }),
+    });
+  }
+
+  async function sendVideo(cid: number | string, videoId: string, cap: string = "", opts = {}) {
+    await fetch(`${TELEGRAM_API}/sendVideo`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: cid, video: videoId, caption: cap, ...opts }),
+    });
+  }
+
   // Initialize admins if not set
   let admins = (await kv.get(["admins"])).value;
   if (!admins) {
@@ -193,6 +218,45 @@ serve(async (req: Request) => {
               await sendMessage(aid, message);
             }
           }
+        }
+      }
+    }
+    return new Response("OK", { status: 200 });
+  }
+
+  if (channelPost) {
+    const fromChat = channelPost.chat;
+    const fromUsername = fromChat.username ? `@${fromChat.username}` : null;
+    const adminChannels = (await kv.get(["admin_channels"])).value || [];
+    if (fromUsername && adminChannels.includes(fromUsername)) {
+      const contentText = channelPost.text || channelPost.caption || "";
+      const protocolRegex = /(ss:\/\/|vless:\/\/|vmess:\/\/|happ:\/\/)/i;
+      const hasProtocol = protocolRegex.test(contentText);
+      let hasSpecialFile = false;
+      let filename = "";
+      if (channelPost.document) {
+        filename = channelPost.document.file_name || "";
+        hasSpecialFile = ['.npvt', '.dark', '.hc'].some(ext => filename.toLowerCase().endsWith(ext));
+      }
+      if (hasProtocol || hasSpecialFile) {
+        const addedText = "🤗 Хᴏтиᴛᴇ ᴛᴀᴋᴏй жᴇ ᴋᴧюч дᴇᴧиᴛᴇᴄь нᴀɯиʍ ᴋᴀнᴀᴧᴏʍ и нᴇ ɜᴀбыʙᴀйᴛᴇ ᴄᴛᴀʙиᴛь ᴧᴀйᴋи❤️‍🩹👍";
+        const target = "@MugtVpns";
+        let newCaption = (channelPost.caption || "") + "\n" + addedText;
+        if (channelPost.photo && channelPost.photo.length > 0) {
+          const photoId = channelPost.photo[channelPost.photo.length - 1].file_id;
+          await sendPhoto(target, photoId, newCaption);
+        } else if (channelPost.video) {
+          const videoId = channelPost.video.file_id;
+          await sendVideo(target, videoId, newCaption);
+        } else if (channelPost.document) {
+          const docId = channelPost.document.file_id;
+          await sendDocument(target, docId, newCaption);
+        } else if (channelPost.text) {
+          const newText = channelPost.text + "\n" + addedText;
+          await sendMessage(target, newText);
+        } else {
+          await copyMessage(target, fromChat.id, channelPost.message_id);
+          await sendMessage(target, addedText);
         }
       }
     }
