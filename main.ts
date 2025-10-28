@@ -1,43 +1,37 @@
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
-
 const kv = await Deno.openKv();
-
 const TOKEN = Deno.env.get("BOT_TOKEN");
 const SECRET_PATH = "/testsub"; // change this if needed
 const TELEGRAM_API = `https://api.telegram.org/bot${TOKEN}`;
-
 serve(async (req: Request) => {
   const { pathname } = new URL(req.url);
   if (pathname !== SECRET_PATH) {
     return new Response("Bot is running.", { status: 200 });
   }
-
   if (req.method !== "POST") {
     return new Response("Method Not Allowed", { status: 405 });
   }
-
   const update = await req.json();
   const message = update.message;
   const callbackQuery = update.callback_query;
   const myChatMember = update.my_chat_member;
-  const chatId = message?.chat?.id || callbackQuery?.message?.chat?.id;
-  const userId = message?.from?.id || callbackQuery?.from?.id;
-  const username = (message?.from?.username || callbackQuery?.from?.username) ? `@${message?.from?.username || callbackQuery?.from?.username}` : null;
-  const text = message?.text;
-  const data = callbackQuery?.data;
-  const messageId = callbackQuery?.message?.message_id || message?.message_id;
-  const callbackQueryId = callbackQuery?.id;
   const channelPost = update.channel_post;
-
-  if (!chatId || !userId) return new Response("No chat ID", { status: 200 });
-
-  // Update user activity
-  const userKey = ["users", userId];
-  let userData = (await kv.get(userKey)).value || { registered_at: Date.now(), last_active: Date.now() };
-  if (!userData.registered_at) userData.registered_at = Date.now();
-  userData.last_active = Date.now();
-  await kv.set(userKey, userData);
-
+  const chatId = message?.chat?.id || callbackQuery?.message?.chat?.id || channelPost?.chat?.id;
+  const userId = message?.from?.id || callbackQuery?.from?.id || channelPost?.from?.id;
+  const username = (message?.from?.username || callbackQuery?.from?.username || channelPost?.from?.username) ? `@${message?.from?.username || callbackQuery?.from?.username || channelPost?.from?.username}` : null;
+  const text = message?.text || channelPost?.text;
+  const data = callbackQuery?.data;
+  const messageId = callbackQuery?.message?.message_id || message?.message_id || channelPost?.message_id;
+  const callbackQueryId = callbackQuery?.id;
+  if (!chatId) return new Response("No chat ID", { status: 200 });
+  // Update user activity if userId exists
+  if (userId) {
+    const userKey = ["users", userId];
+    let userData = (await kv.get(userKey)).value || { registered_at: Date.now(), last_active: Date.now() };
+    if (!userData.registered_at) userData.registered_at = Date.now();
+    userData.last_active = Date.now();
+    await kv.set(userKey, userData);
+  }
   // Helper functions
   async function sendMessage(cid: number | string, txt: string, opts = {}) {
     await fetch(`${TELEGRAM_API}/sendMessage`, {
@@ -46,7 +40,6 @@ serve(async (req: Request) => {
       body: JSON.stringify({ chat_id: cid, text: txt, ...opts }),
     });
   }
-
   async function editMessageText(cid: number, mid: number, txt: string, opts = {}) {
     await fetch(`${TELEGRAM_API}/editMessageText`, {
       method: "POST",
@@ -54,7 +47,13 @@ serve(async (req: Request) => {
       body: JSON.stringify({ chat_id: cid, message_id: mid, text: txt, ...opts }),
     });
   }
-
+  async function editMessageCaption(cid: number, mid: number, cap: string, opts = {}) {
+    await fetch(`${TELEGRAM_API}/editMessageCaption`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: cid, message_id: mid, caption: cap, ...opts }),
+    });
+  }
   async function forwardMessage(toChatId: string, fromChatId: number, msgId: number) {
     await fetch(`${TELEGRAM_API}/forwardMessage`, {
       method: "POST",
@@ -62,15 +61,14 @@ serve(async (req: Request) => {
       body: JSON.stringify({ chat_id: toChatId, from_chat_id: fromChatId, message_id: msgId }),
     });
   }
-
   async function copyMessage(toChatId: number | string, fromChatId: number | string, msgId: number) {
-    await fetch(`${TELEGRAM_API}/copyMessage`, {
+    const res = await fetch(`${TELEGRAM_API}/copyMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: toChatId, from_chat_id: fromChatId, message_id: msgId }),
     });
+    return await res.json();
   }
-
   async function deleteMessage(cid: number, mid: number) {
     await fetch(`${TELEGRAM_API}/deleteMessage`, {
       method: "POST",
@@ -78,7 +76,6 @@ serve(async (req: Request) => {
       body: JSON.stringify({ chat_id: cid, message_id: mid }),
     });
   }
-
   async function answerCallback(qid: string, txt = "") {
     await fetch(`${TELEGRAM_API}/answerCallbackQuery`, {
       method: "POST",
@@ -86,7 +83,6 @@ serve(async (req: Request) => {
       body: JSON.stringify({ callback_query_id: qid, text: txt }),
     });
   }
-
   async function getChannelTitle(ch: string) {
     try {
       const res = await fetch(`${TELEGRAM_API}/getChat?chat_id=${ch}`);
@@ -96,7 +92,6 @@ serve(async (req: Request) => {
       return ch;
     }
   }
-
   async function isSubscribed(uid: number, chs: string[]) {
     for (const ch of chs) {
       try {
@@ -111,7 +106,6 @@ serve(async (req: Request) => {
     }
     return true;
   }
-
   async function getUnsubscribed(uid: number, chs: string[]) {
     const unsub = [];
     for (const ch of chs) {
@@ -127,7 +121,6 @@ serve(async (req: Request) => {
     }
     return unsub;
   }
-
   async function getStats() {
     let total = 0, reg24 = 0, act24 = 0;
     const now = Date.now();
@@ -141,7 +134,6 @@ serve(async (req: Request) => {
     const adnum = ((await kv.get(["admins"])).value || []).length;
     return { total, reg24, act24, channels: chnum, admins: adnum };
   }
-
   function buildJoinRows(chs: string[], titles: string[]) {
     const rows = [];
     for (let i = 0; i < chs.length; i += 2) {
@@ -154,38 +146,12 @@ serve(async (req: Request) => {
     }
     return rows;
   }
-
-  async function sendDocument(cid: number | string, docId: string, cap: string = "", opts = {}) {
-    await fetch(`${TELEGRAM_API}/sendDocument`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: cid, document: docId, caption: cap, ...opts }),
-    });
-  }
-
-  async function sendPhoto(cid: number | string, photoId: string, cap: string = "", opts = {}) {
-    await fetch(`${TELEGRAM_API}/sendPhoto`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: cid, photo: photoId, caption: cap, ...opts }),
-    });
-  }
-
-  async function sendVideo(cid: number | string, videoId: string, cap: string = "", opts = {}) {
-    await fetch(`${TELEGRAM_API}/sendVideo`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: cid, video: videoId, caption: cap, ...opts }),
-    });
-  }
-
   // Initialize admins if not set
   let admins = (await kv.get(["admins"])).value;
   if (!admins) {
     admins = ["@Masakoff"];
     await kv.set(["admins"], admins);
   }
-
   // Handle my_chat_member updates for promotion/demotion
   if (myChatMember) {
     const chat = myChatMember.chat;
@@ -223,46 +189,46 @@ serve(async (req: Request) => {
     }
     return new Response("OK", { status: 200 });
   }
-
+  // Handle channel posts
   if (channelPost) {
-    const fromChat = channelPost.chat;
-    const fromUsername = fromChat.username ? `@${fromChat.username}` : null;
-    const adminChannels = (await kv.get(["admin_channels"])).value || [];
-    if (fromUsername && adminChannels.includes(fromUsername)) {
-      const contentText = channelPost.text || channelPost.caption || "";
-      const protocolRegex = /(ss:\/\/|vless:\/\/|vmess:\/\/|happ:\/\/)/i;
-      const hasProtocol = protocolRegex.test(contentText);
-      let hasSpecialFile = false;
-      let filename = "";
-      if (channelPost.document) {
-        filename = channelPost.document.file_name || "";
-        hasSpecialFile = ['.npvt', '.dark', '.hc'].some(ext => filename.toLowerCase().endsWith(ext));
-      }
-      if (hasProtocol || hasSpecialFile) {
-        const addedText = "🤗 Хᴏтиᴛᴇ ᴛᴀᴋᴏй жᴇ ᴋᴧюч дᴇᴧиᴛᴇᴄь нᴀɯиʍ ᴋᴀнᴀᴧᴏʍ и нᴇ ɜᴀбыʙᴀйᴛᴇ ᴄᴛᴀʙиᴛь ᴧᴀйᴋи❤️‍🩹👍";
-        const target = "@MugtVpns";
-        let newCaption = (channelPost.caption || "") + "\n" + addedText;
-        if (channelPost.photo && channelPost.photo.length > 0) {
-          const photoId = channelPost.photo[channelPost.photo.length - 1].file_id;
-          await sendPhoto(target, photoId, newCaption);
-        } else if (channelPost.video) {
-          const videoId = channelPost.video.file_id;
-          await sendVideo(target, videoId, newCaption);
-        } else if (channelPost.document) {
-          const docId = channelPost.document.file_id;
-          await sendDocument(target, docId, newCaption);
-        } else if (channelPost.text) {
-          const newText = channelPost.text + "\n" + addedText;
-          await sendMessage(target, newText);
-        } else {
-          await copyMessage(target, fromChat.id, channelPost.message_id);
-          await sendMessage(target, addedText);
+    const channelUsername = channelPost.chat.username ? `@${channelPost.chat.username}` : null;
+    if (channelUsername) {
+      const channels = (await kv.get(["channels"])).value || [];
+      const extraChannels = (await kv.get(["extra_channels"])).value || [];
+      const allMonitored = [...channels, ...extraChannels];
+      if (allMonitored.includes(channelUsername)) {
+        const postText = channelPost.text || channelPost.caption || "";
+        const protocols = ["ss://", "vless://", "vmess://", "happ://"];
+        const hasProtocol = protocols.some(p => postText.includes(p));
+        let hasFile = false;
+        if (channelPost.document) {
+          const fileName = channelPost.document.file_name || "";
+          const extensions = [".npvt", ".dark", ".hc"];
+          hasFile = extensions.some(ext => fileName.toLowerCase().endsWith(ext));
+        }
+        if (hasProtocol || hasFile) {
+          const targetChannel = "@MugtVpns";
+          const copyRes = await copyMessage(targetChannel, channelPost.chat.id, channelPost.message_id);
+          if (copyRes.ok) {
+            const newMessage = copyRes.result;
+            const newMsgId = newMessage.message_id;
+            const appendText = "\n\n🤗 Хᴏᴛиᴛᴇ ᴛᴀᴋᴏй жᴇ ᴋᴧюч дᴇᴧиᴛᴇᴄь нᴀɯиʍ ᴋᴀнᴀᴧᴏʍ и нᴇ ɜᴀбыʙᴀйᴛᴇ ᴄᴛᴀʙиᴛь ᴧᴀйᴋи❤️‍🩹👍";
+            if (newMessage.text) {
+              const newText = (newMessage.text || "") + appendText;
+              await editMessageText(targetChannel, newMsgId, newText, { parse_mode: newMessage.parse_mode });
+            } else if (newMessage.caption) {
+              const newCaption = (newMessage.caption || "") + appendText;
+              await editMessageCaption(targetChannel, newMsgId, newCaption, { parse_mode: newMessage.parse_mode });
+            } else {
+              // No text or caption, send append as reply
+              await sendMessage(targetChannel, appendText, { reply_to_message_id: newMsgId });
+            }
+          }
         }
       }
     }
     return new Response("OK", { status: 200 });
   }
-
   // Handle states for admin inputs
   if (message) {
     const stateKey = ["state", userId];
@@ -450,7 +416,6 @@ serve(async (req: Request) => {
       return new Response("OK", { status: 200 });
     }
   }
-
   if (message && text) {
     // Handle /start
     if (text.startsWith("/start")) {
@@ -472,7 +437,6 @@ serve(async (req: Request) => {
         await sendMessage(chatId, subText, { reply_markup: { inline_keyboard: keyboard } });
       }
     }
-
     // Handle /admin
     if (text === "/admin") {
       if (!username || !admins.includes(username)) {
@@ -501,7 +465,6 @@ serve(async (req: Request) => {
       await sendMessage(chatId, "Admin paneli", { reply_markup: { inline_keyboard: adminKb } });
     }
   }
-
   // Handle callback queries
   if (callbackQuery && data) {
     admins = (await kv.get(["admins"])).value || ["@Masakoff"];
@@ -509,7 +472,6 @@ serve(async (req: Request) => {
       await answerCallback(callbackQueryId, "Siziň admin bolmagyňyz ýok");
       return new Response("OK", { status: 200 });
     }
-
     if (data === "check_sub") {
       const channels = (await kv.get(["channels"])).value || [];
       const unsubChs = await getUnsubscribed(userId, channels);
@@ -611,6 +573,5 @@ serve(async (req: Request) => {
       await answerCallback(callbackQueryId);
     }
   }
-
   return new Response("OK", { status: 200 });
 });
