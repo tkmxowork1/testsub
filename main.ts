@@ -62,6 +62,22 @@ serve(async (req: Request) => {
     });
   }
 
+  async function copyMessage(toChatId: number | string, fromChatId: number | string, msgId: number) {
+    await fetch(`${TELEGRAM_API}/copyMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: toChatId, from_chat_id: fromChatId, message_id: msgId }),
+    });
+  }
+
+  async function deleteMessage(cid: number, mid: number) {
+    await fetch(`${TELEGRAM_API}/deleteMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: cid, message_id: mid }),
+    });
+  }
+
   async function answerCallback(qid: string, txt = "") {
     await fetch(`${TELEGRAM_API}/answerCallbackQuery`, {
       method: "POST",
@@ -295,13 +311,14 @@ serve(async (req: Request) => {
           await sendMessage(chatId, "✅ Orun üstünlikli üýtgedildi");
           break;
         case "change_text":
-          if (!text) {
-            await sendMessage(chatId, "⚠️ Tekst iberiň");
-            break;
+          let fromChatId = chatId;
+          let msgId = message.message_id;
+          if (message.forward_origin && message.forward_origin.type === "channel") {
+            fromChatId = message.forward_origin.chat.id;
+            msgId = message.forward_origin.message_id;
           }
-          const newTxt = text.trim();
-          await kv.set(["success_text"], newTxt);
-          await sendMessage(chatId, "✅ Üstünlik teksti üýtgedildi");
+          await kv.set(["success_message"], { from_chat_id: fromChatId, message_id: msgId });
+          await sendMessage(chatId, "✅ Üstünlik habary üýtgedildi");
           break;
         case "change_post":
           await kv.set(["broadcast_post"], { from_chat_id: chatId, message_id: message.message_id });
@@ -375,8 +392,12 @@ serve(async (req: Request) => {
       const channels = (await kv.get(["channels"])).value || [];
       const subscribed = await isSubscribed(userId, channels);
       if (subscribed) {
-        const successText = (await kv.get(["success_text"])).value || "🎉 Siziň ähli kanallara abuna boldyňyz! VPN-iňizden lezzet alyň.";
-        await sendMessage(chatId, successText);
+        const successMsg = (await kv.get(["success_message"])).value;
+        if (successMsg) {
+          await copyMessage(chatId, successMsg.from_chat_id, successMsg.message_id);
+        } else {
+          await sendMessage(chatId, "🎉 Siziň ähli kanallara abuna boldyňyz! VPN-iňizden lezzet alyň.");
+        }
       } else {
         const chTitles = await Promise.all(channels.map(getChannelTitle));
         const subText = "⚠️ Bu kanallara abuna boluň VPN almak üçin";
@@ -428,17 +449,24 @@ serve(async (req: Request) => {
       const channels = (await kv.get(["channels"])).value || [];
       const unsubChs = await getUnsubscribed(userId, channels);
       const subscribed = unsubChs.length === 0;
-      const successText = (await kv.get(["success_text"])).value || "🎉 Siziň ähli kanallara abuna boldyňyz! VPN-iňizden lezzet alyň.";
-      let textToSend = subscribed ? successText : "⚠️ Bu henizem abuna bolmadyk kanallara abuna boluň VPN almak üçin";
-      let keyboard;
-      if (!subscribed) {
+      if (subscribed) {
+        await deleteMessage(chatId, messageId);
+        const successMsg = (await kv.get(["success_message"])).value;
+        if (successMsg) {
+          await copyMessage(chatId, successMsg.from_chat_id, successMsg.message_id);
+        } else {
+          await sendMessage(chatId, "🎉 Siziň ähli kanallara abuna boldyňyz! VPN-iňizden lezzet alyň.");
+        }
+        await answerCallback(callbackQueryId);
+      } else {
         const chTitles = await Promise.all(unsubChs.map(getChannelTitle));
+        const textToSend = "⚠️ Bu henizem abuna bolmadyk kanallara abuna boluň VPN almak üçin";
         const mainRows = buildJoinRows(unsubChs, chTitles);
         const adRows = [[{ text: "MugtVpns", url: "https://t.me/addlist/5wQ1fNW2xIdjZmIy" }]];
-        keyboard = [...mainRows, ...adRows, [{ text: "Abuna barla ✅", callback_data: "check_sub" }]];
+        const keyboard = [...mainRows, ...adRows, [{ text: "Abuna barla ✅", callback_data: "check_sub" }]];
+        await editMessageText(chatId, messageId, textToSend, { reply_markup: { inline_keyboard: keyboard } });
+        await answerCallback(callbackQueryId);
       }
-      await editMessageText(chatId, messageId, textToSend, { reply_markup: subscribed ? undefined : { inline_keyboard: keyboard } });
-      await answerCallback(callbackQueryId);
     } else if (data.startsWith("admin_")) {
       const action = data.substring(6);
       const stateKey = ["state", userId];
@@ -470,7 +498,7 @@ serve(async (req: Request) => {
           await kv.set(stateKey, "change_place");
           break;
         case "change_text":
-          prompt = "📥 Täze üstünlik tekstini iberiň";
+          prompt = "📥 Täze üstünlik habaryny iberiň ýa-da forward ediň (kanaldan, sender adyny gizlemek üçin; tekst, surat, wideo we ş.m.)";
           await kv.set(stateKey, "change_text");
           break;
         case "global_message":
