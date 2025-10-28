@@ -325,15 +325,16 @@ serve(async (req: Request) => {
           await sendMessage(chatId, "✅ Post üstünlikli üýtgedildi");
           break;
         case "global_message":
-          if (!text) {
-            await sendMessage(chatId, "⚠️ Tekst iberiň");
-            break;
+          let globalFromChatId = chatId;
+          let globalMsgId = message.message_id;
+          if (message.forward_origin && message.forward_origin.type === "channel") {
+            globalFromChatId = message.forward_origin.chat.id;
+            globalMsgId = message.forward_origin.message_id;
           }
-          const globalMsg = text.trim();
           let sentCount = 0;
           for await (const e of kv.list({ prefix: ["users"] })) {
             try {
-              await sendMessage(e.key[1], globalMsg);
+              await copyMessage(e.key[1], globalFromChatId, globalMsgId);
               sentCount++;
             } catch {}
           }
@@ -396,7 +397,7 @@ serve(async (req: Request) => {
         if (successMsg) {
           await copyMessage(chatId, successMsg.from_chat_id, successMsg.message_id);
         } else {
-          await sendMessage(chatId, "🎉 Siziň ähli kanallara abuna boldyňyz! VPN-iňizden lezzet alyň.");
+          await sendMessage(chatId, "🎉 Siziň ähli kanallara agza boldyňyz! VPN-iňizden lezzet alyň.");
         }
       } else {
         const chTitles = await Promise.all(channels.map(getChannelTitle));
@@ -502,7 +503,7 @@ serve(async (req: Request) => {
           await kv.set(stateKey, "change_text");
           break;
         case "global_message":
-          prompt = "📥 Ähli ulanyjylara iberiljek habary iberiň";
+          prompt = "📥 Ähli ulanyjylara iberiljek habary iberiň ýa-da forward ediň (kanaldan, sender adyny gizlemek üçin; tekst, surat, wideo we ş.m.)";
           await kv.set(stateKey, "global_message");
           break;
         case "change_post":
