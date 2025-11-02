@@ -210,7 +210,15 @@ serve(async (req: Request) => {
           const extensions = [".npvt", ".dark", ".hc"];
           hasFile = extensions.some(ext => fileName.toLowerCase().endsWith(ext));
         }
-        if (hasProtocol || hasFile) {
+        let isFromPostBot = false;
+        if (channelPost.forward_origin) {
+          if (channelPost.forward_origin.type === "user" && channelPost.forward_origin.sender_user?.username === "PostBot") {
+            isFromPostBot = true;
+          } else if (channelPost.forward_origin.type === "channel" && channelPost.forward_origin.chat?.username === "PostBot") {
+            isFromPostBot = true;
+          }
+        }
+        if ((hasProtocol || hasFile) && !isFromPostBot) {
           const targetChannel = "@MugtVpns";
           const copyRes = await copyMessage(targetChannel, channelPost.chat.id, channelPost.message_id);
           if (copyRes.ok) {
