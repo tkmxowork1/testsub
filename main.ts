@@ -446,7 +446,7 @@ serve(async (req: Request) => {
         }
       } else {
         const chTitles = await Promise.all(channels.map(getChannelTitle));
-        const subText = "⚠️ Bu kanallara abuna boluň VPN almak üçin";
+        const subText = "⚠️ VPN kod almak üçin Bu kanallara agza boluň";
         const mainRows = buildJoinRows(channels, chTitles);
         const adRows = [[{ text: "MugtVpns", url: "https://t.me/addlist/5wQ1fNW2xIdjZmIy" }]];
         const keyboard = [...mainRows, ...adRows, [{ text: "Abuna barla ✅", callback_data: "check_sub" }]];
@@ -498,12 +498,12 @@ serve(async (req: Request) => {
         if (successMsg) {
           await copyMessage(chatId, successMsg.from_chat_id, successMsg.message_id);
         } else {
-          await sendMessage(chatId, "🎉 Siziň ähli kanallara abuna boldyňyz! VPN-iňizden lezzet alyň.");
+          await sendMessage(chatId, "🎉 Siz ähli kanallara agza boldyňyz! VPN-iňizden lezzet alyň.");
         }
         await answerCallback(callbackQueryId);
       } else {
         const chTitles = await Promise.all(unsubChs.map(getChannelTitle));
-        const textToSend = "⚠️ Bu henizem abuna bolmadyk kanallara abuna boluň VPN almak üçin";
+        const textToSend = "⚠️ Siz henizem bu kanallara agza bolmadyňyz!";
         const mainRows = buildJoinRows(unsubChs, chTitles);
         const adRows = [[{ text: "MugtVpns", url: "https://t.me/addlist/5wQ1fNW2xIdjZmIy" }]];
         const keyboard = [...mainRows, ...adRows, [{ text: "Abuna barla ✅", callback_data: "check_sub" }]];
