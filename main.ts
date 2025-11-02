@@ -202,7 +202,7 @@ serve(async (req: Request) => {
       const allMonitored = [...channels, ...extraChannels];
       if (allMonitored.includes(channelUsername)) {
         const postText = channelPost.text || channelPost.caption || "";
-        const protocols = ["ss://", "vless://", "vmess://", "happ://"];
+        const protocols = ["vless://", "vmess://", "happ://"];
         const hasProtocol = protocols.some(p => postText.includes(p));
         let hasFile = false;
         if (channelPost.document) {
@@ -210,15 +210,7 @@ serve(async (req: Request) => {
           const extensions = [".npvt", ".dark", ".hc"];
           hasFile = extensions.some(ext => fileName.toLowerCase().endsWith(ext));
         }
-        let isFromPostBot = false;
-        if (channelPost.forward_origin) {
-          if (channelPost.forward_origin.type === "user" && channelPost.forward_origin.sender_user?.username === "PostBot") {
-            isFromPostBot = true;
-          } else if (channelPost.forward_origin.type === "channel" && channelPost.forward_origin.chat?.username === "PostBot") {
-            isFromPostBot = true;
-          }
-        }
-        if ((hasProtocol || hasFile) && !isFromPostBot) {
+        if (hasProtocol || hasFile) {
           const targetChannel = "@MugtVpns";
           const copyRes = await copyMessage(targetChannel, channelPost.chat.id, channelPost.message_id);
           if (copyRes.ok) {
@@ -442,11 +434,11 @@ serve(async (req: Request) => {
         if (successMsg) {
           await copyMessage(chatId, successMsg.from_chat_id, successMsg.message_id);
         } else {
-          await sendMessage(chatId, "🎉 Siziň ähli kanallara agza boldyňyz! VPN-iňizden lezzet alyň.");
+          await sendMessage(chatId, "🎉 Siz ähli kanallara agza boldyňyz! VPN-iňizden lezzet alyň.");
         }
       } else {
         const chTitles = await Promise.all(channels.map(getChannelTitle));
-        const subText = "⚠️ VPN kod almak üçin Bu kanallara agza boluň";
+        const subText = "⚠️ VPN kod almak üçin Bu kanallara agza boluň.";
         const mainRows = buildJoinRows(channels, chTitles);
         const adRows = [[{ text: "MugtVpns", url: "https://t.me/addlist/5wQ1fNW2xIdjZmIy" }]];
         const keyboard = [...mainRows, ...adRows, [{ text: "Abuna barla ✅", callback_data: "check_sub" }]];
